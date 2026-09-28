@@ -13,3 +13,8 @@ scikit-learn
 tqdm
 typer
 -e .
+huggingface_hub
+pillow
+pandas
+matplotlib
+scikit-learn
