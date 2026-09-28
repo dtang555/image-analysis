@@ -1,6 +1,10 @@
-﻿"""Train a two-view (front + back) ResNet18 to regress the PSA grade."""
+﻿"""Train a two-view (front + back) ResNet18 to regress the PSA grade.
+
+Usage: python image_analysis/modeling/train.py [epochs] [weighted]
+"""
 from pathlib import Path
 import sys
+import time
 
 from PIL import Image
 import pandas as pd
@@ -64,60 +68,96 @@ def evaluate(model, loader, device):
     p = torch.cat(preds).clamp(1, 10)
     y = torch.cat(ys)
     r = p.round()
+    per_grade = [(p[y == g] - g).abs().mean() for g in y.unique()]
     return {
         "mae": (p - y).abs().mean().item(),
+        "balanced_mae": torch.stack(per_grade).mean().item(),
         "exact": (r == y).float().mean().item(),
         "within1": ((r - y).abs() <= 1).float().mean().item(),
     }
 
 
-def main(epochs=5, batch_size=16):
+def grade_weights(train_df):
+    """Inverse-sqrt-frequency weights per grade, normalised to average 1."""
+    counts = train_df["grade"].value_counts()
+    w = counts.pow(-0.5)
+    w = w * counts.sum() / (w * counts).sum()
+    table = torch.ones(11)
+    for grade, value in w.items():
+        table[int(grade)] = float(value)
+    return table
+
+
+def baseline_report(train_df, test_df):
+    med = train_df["grade"].median()
+    for name, c in (("always 10", 10), (f"always {med:g} (median)", med)):
+        err = (test_df["grade"] - c).abs()
+        balanced = err.groupby(test_df["grade"]).mean().mean()
+        exact = (test_df["grade"] == round(c)).mean()
+        print(f"baseline {name}: MAE {err.mean():.3f}  balanced MAE {balanced:.3f}  exact {exact:.3f}")
+
+
+def main(epochs=10, weighted=False, batch_size=16):
+    tag = "full_weighted" if weighted else "full"
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print("device:", device, flush=True)
+    print("device:", device, "| run:", tag, flush=True)
     df = pd.read_csv(INDEX)
     loaders = {
         s: DataLoader(
             CardDataset(df[df["split"] == s]),
             batch_size=batch_size,
             shuffle=(s == "train"),
-            num_workers=2,
+            num_workers=4,
+            persistent_workers=True,
         )
         for s in ("train", "val", "test")
     }
     model = TwoViewNet().to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-4)
-    loss_fn = nn.SmoothL1Loss()
+    loss_fn = nn.SmoothL1Loss(reduction="none")
+    weights = grade_weights(df[df["split"] == "train"]).to(device)
     MODELS.mkdir(exist_ok=True)
+    ckpt = MODELS / f"resnet18_{tag}.pt"
     best = float("inf")
     n_batches = len(loaders["train"])
 
     for ep in range(1, epochs + 1):
         model.train()
+        start = time.time()
         total = 0.0
         for i, (front, back, y) in enumerate(loaders["train"], 1):
             front, back, y = front.to(device), back.to(device), y.to(device)
             opt.zero_grad()
-            loss = loss_fn(model(front, back), y)
+            per_sample = loss_fn(model(front, back), y)
+            if weighted:
+                per_sample = per_sample * weights[y.long()]
+            loss = per_sample.mean()
             loss.backward()
             opt.step()
             total += loss.item() * len(y)
-            if i % 40 == 0:
+            if i % 200 == 0:
                 print(f"  epoch {ep}: batch {i}/{n_batches}", flush=True)
         val = evaluate(model, loaders["val"], device)
         print(
-            f"epoch {ep}: train loss {total / len(loaders['train'].dataset):.3f} | "
-            f"val MAE {val['mae']:.3f} exact {val['exact']:.3f} within1 {val['within1']:.3f}",
+            f"epoch {ep} ({(time.time() - start) / 60:.1f} min): "
+            f"train loss {total / len(loaders['train'].dataset):.3f} | "
+            f"val MAE {val['mae']:.3f} balanced {val['balanced_mae']:.3f} "
+            f"exact {val['exact']:.3f} within1 {val['within1']:.3f}",
             flush=True,
         )
-        if val["mae"] < best:
-            best = val["mae"]
-            torch.save(model.state_dict(), MODELS / "resnet18_v1.pt")
+        if val["balanced_mae"] < best:
+            best = val["balanced_mae"]
+            torch.save(model.state_dict(), ckpt)
 
-    model.load_state_dict(torch.load(MODELS / "resnet18_v1.pt", map_location=device))
+    model.load_state_dict(torch.load(ckpt, map_location=device))
     test = evaluate(model, loaders["test"], device)
-    print(f"\nTEST  MAE {test['mae']:.3f}  exact {test['exact']:.3f}  within1 {test['within1']:.3f}")
-    print("baseline (always 10): MAE 0.716, exact 0.559")
+    print(
+        f"\nTEST ({tag})  MAE {test['mae']:.3f}  balanced MAE {test['balanced_mae']:.3f}  "
+        f"exact {test['exact']:.3f}  within1 {test['within1']:.3f}"
+    )
+    baseline_report(df[df["split"] == "train"], df[df["split"] == "test"])
 
 
 if __name__ == "__main__":
-    main(int(sys.argv[1]) if len(sys.argv) > 1 else 5)
+    n_epochs = int(sys.argv[1]) if len(sys.argv) > 1 else 10
+    main(n_epochs, weighted="weighted" in sys.argv[2:])
