@@ -76,4 +76,4 @@ def main(tag="full"):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "full")
+    main(sys.argv[1] if len(sys.argv) > 1 else "full_weighted_v2")
