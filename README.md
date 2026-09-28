@@ -4,7 +4,8 @@
     <img src="https://img.shields.io/badge/CCDS-Project%20template-328F97?logo=cookiecutter" />
 </a>
 
-Image analysis project w/ PyTorch
+Estimating the PSA grade (1-10) of a trading card from scans of its front and back, using a PyTorch model trained on real graded cards.
+Work in progress
 
 ## Project Organization
 
