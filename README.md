@@ -8,8 +8,6 @@ Estimating the PSA grade (1-10) of a Pokemon trading card from scans of its fron
 
 Given a front and back scan of a card, the model predicts a single number: the expected PSA grade. Both views go through one shared ResNet18 backbone, and their features are combined by a small regression head.
 
-The project demonstrates a full ML workflow: data cleaning, a reproducible split, honest baselines, GPU training, and evaluation that doesn't hide behind an imbalanced dataset.
-
 ## Dataset
 
 - **Source:** [`jyesr/pokemon-tcg-grading`](https://huggingface.co/datasets/jyesr/pokemon-tcg-grading) on Hugging Face.
