@@ -1,0 +1,96 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Card Grade Estimator</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; color: #222; }
+  h1 { font-size: 1.4rem; }
+  .row { display: flex; gap: 16px; margin: 16px 0; }
+  .slot { flex: 1; border: 2px dashed #bbb; border-radius: 8px; padding: 12px; text-align: center; }
+  .slot img { max-width: 100%; max-height: 220px; margin-top: 8px; border-radius: 4px; }
+  .slot label { font-weight: 600; display: block; margin-bottom: 6px; }
+  button { padding: 10px 20px; font-size: 1rem; border: none; border-radius: 6px; background: #2563eb; color: white; cursor: pointer; }
+  button:disabled { background: #9ca3af; cursor: not-allowed; }
+  #result { margin-top: 20px; padding: 16px; border-radius: 8px; background: #f3f4f6; display: none; }
+  #result.show { display: block; }
+  #grade { font-size: 2.2rem; font-weight: 700; }
+  #note { color: #555; font-size: 0.9rem; margin-top: 6px; }
+  #error { color: #b91c1c; margin-top: 12px; }
+</style>
+</head>
+<body>
+  <h1>Card Grade Estimator</h1>
+  <p>Upload a front and back photo or scan of a trading card to get an estimated PSA-style grade.</p>
+
+  <div class="row">
+    <div class="slot">
+      <label for="front">Front</label>
+      <input type="file" id="front" accept="image/*">
+      <img id="front-preview" style="display:none">
+    </div>
+    <div class="slot">
+      <label for="back">Back</label>
+      <input type="file" id="back" accept="image/*">
+      <img id="back-preview" style="display:none">
+    </div>
+  </div>
+
+  <button id="submit" disabled>Estimate grade</button>
+  <div id="error"></div>
+
+  <div id="result">
+    <div>Estimated grade</div>
+    <div id="grade"></div>
+    <div id="note"></div>
+  </div>
+
+<script>
+const frontInput = document.getElementById("front");
+const backInput = document.getElementById("back");
+const submitBtn = document.getElementById("submit");
+const errorEl = document.getElementById("error");
+const resultEl = document.getElementById("result");
+
+function previewAndCheck(input, previewId) {
+  const preview = document.getElementById(previewId);
+  input.addEventListener("change", () => {
+    if (input.files[0]) {
+      preview.src = URL.createObjectURL(input.files[0]);
+      preview.style.display = "block";
+    }
+    submitBtn.disabled = !(frontInput.files[0] && backInput.files[0]);
+  });
+}
+previewAndCheck(frontInput, "front-preview");
+previewAndCheck(backInput, "back-preview");
+
+submitBtn.addEventListener("click", async () => {
+  errorEl.textContent = "";
+  resultEl.classList.remove("show");
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Estimating...";
+
+  const formData = new FormData();
+  formData.append("front", frontInput.files[0]);
+  formData.append("back", backInput.files[0]);
+
+  try {
+    const res = await fetch("/predict", { method: "POST", body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Request failed");
+
+    document.getElementById("grade").textContent = data.grade_rounded + " / 10";
+    document.getElementById("note").textContent =
+      `Raw model output: ${data.grade_raw.toFixed(2)}. This is an estimate, not an official PSA grade.`;
+    resultEl.classList.add("show");
+  } catch (err) {
+    errorEl.textContent = err.message;
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Estimate grade";
+  }
+});
+</script>
+</body>
+</html>

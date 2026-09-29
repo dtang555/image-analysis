@@ -18,3 +18,5 @@ pillow
 pandas
 matplotlib
 scikit-learn
+
+flask
