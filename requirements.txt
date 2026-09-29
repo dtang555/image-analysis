@@ -20,3 +20,5 @@ matplotlib
 scikit-learn
 
 flask
+
+opencv-python
